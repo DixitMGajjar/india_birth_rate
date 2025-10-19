@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time India Birth Rate Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .global-counter {
+            text-align: center;
+            font-size: 1.5em;
+            margin-bottom: 30px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+
+        #map-container {
+            position: relative;
+            width: 100%;
+            height: 700px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .state {
+            fill: #e8f4f8;
+            stroke: #2c3e50;
+            stroke-width: 1;
+            cursor: pointer;
+            transition: fill 0.3s ease;
+        }
+
+        .state:hover {
+            fill: #bde3f0;
+        }
+
+        .state-flash {
+            fill: #ffeb3b !important;
+            transition: fill 0.1s ease;
+        }
+
+        .state-label {
+            font-size: 12px;
+            font-weight: bold;
+            fill: #2c3e50;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+
+        .birth-counter {
+            font-size: 10px;
+            font-weight: bold;
+            fill: #e74c3c;
+            text-anchor: middle;
+            pointer-events: none;
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            color: #2c3e50;
+            font-size: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .data-input {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+
+        .data-input h3 {
+            margin-top: 0;
+            color: #ffeb3b;
+        }
+
+        .status {
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .status.loading {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .status.ready {
+            background: rgba(40, 167, 69, 0.2);
+            color: #28a745;
+        }
+
+        .status.error {
+            background: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🇮🇳 Real-time Birth Rate Visualization - India</h1>
+        
+        <div id="status" class="status loading">Loading India map data...</div>
+        
+        <div class="global-counter">
+            <div>Total Babies Born Today: <span id="global-count">0</span></div>
+            <div style="font-size: 0.8em; margin-top: 5px;">Live births happening across India</div>
+        </div>
+
+        <div id="map-container">
+            <svg id="map"></svg>
+            <div class="legend">
+                <div><strong>🟡 Flash:</strong> New birth</div>
+                <div><strong>Red numbers:</strong> Today's count</div>
+                <div><strong>Hover:</strong> State details</div>
+            </div>
+        </div>
+
+        <div class="data-input">
+            <h3>📊 Data Configuration</h3>
+            <p><strong>Current Data Source:</strong> Sample birth rates (babies per minute per state)</p>
+            <p><strong>To use your own data:</strong> Replace the <code>birthRatesPerMinute</code> object in the JavaScript section with your actual data.</p>
+            <p><strong>Expected Format:</strong> <code>{"State Name": babies_per_minute_number}</code></p>
+            
+            <h3>🗺️ GeoJSON Integration</h3>
+            <p><strong>Using:</strong> india-states.geojson from same directory</p>
+            <p><strong>⚠️ Important:</strong> Make sure state names in your GeoJSON match the names in your birth rate data!</p>
+        </div>
+    </div>
+
+    <script>
+        // ================================
+        // DATA CONFIGURATION SECTION
+        // Replace this object with your actual birth rate data
+        // ================================
+        const birthRatesPerMinute = {
+            "Uttar Pradesh": 42.5,
+            "Maharashtra": 28.3,
+            "Bihar": 26.8,
+            "West Bengal": 18.2,
+            "Madhya Pradesh": 17.9,
+            "Tamil Nadu": 14.8,
+            "Rajasthan": 17.2,
+            "Karnataka": 13.9,
+            "Gujarat": 13.5,
+            "Andhra Pradesh": 10.8,
+            "Odisha": 9.7,
+            "Telangana": 8.9,
+            "Kerala": 6.2,
+            "Jharkhand": 8.1,
+            "Assam": 7.8,
+            "Punjab": 5.9,
+            "Chhattisgarh": 6.2,
+            "Haryana": 5.8,
+            "Delhi": 4.2,
+            "Jammu and Kashmir": 2.8,
+            "Uttarakhand": 2.1,
+            "Himachal Pradesh": 1.4,
+            "Tripura": 0.8,
+            "Meghalaya": 0.7,
+            "Manipur": 0.6,
+            "Nagaland": 0.4,
+            "Goa": 0.3,
+            "Arunachal Pradesh": 0.3,
+            "Mizoram": 0.2,
+            "Sikkim": 0.1
+        };
+
+        // Global variables
+        let globalBirthCount = 0;
+        let stateCounters = {};
+        let svg, g, path, projection;
+        let isMapLoaded = false;
+
+        // Initialize state counters
+        Object.keys(birthRatesPerMinute).forEach(state => {
+            stateCounters[state] = 0;
+        });
+
+        // Set up the map
+        function initializeMap() {
+            const width = 1000;
+            const height = 700;
+
+            // Create SVG
+            svg = d3.select("#map")
+                .attr("width", width)
+                .attr("height", height);
+
+            g = svg.append("g");
+
+            // Set up projection for India
+            projection = d3.geoMercator()
+                .center([78.9629, 20.5937])
+                .scale(800)
+                .translate([width/2, height/2]);
+
+            path = d3.geoPath().projection(projection);
+
+            // Load India GeoJSON data
+            loadIndiaMap();
+        }
+
+        // Load India map data
+        function loadIndiaMap() {
+            // Load from the india-states.geojson file in the same directory
+            d3.json("india-states.geojson")
+                .then(loadGeoJSONData)
+                .catch(handleError);
+        }
+
+        // Function to handle GeoJSON data loading
+        function loadGeoJSONData(geoData) {
+            // Clear any existing content
+            g.selectAll("*").remove();
+            
+            // Draw states from GeoJSON
+            const states = g.selectAll(".state")
+                .data(geoData.features)
+                .enter()
+                .append("path")
+                .attr("class", "state")
+                .attr("d", path)
+                .attr("id", d => {
+                    // Try different property names that might contain state names
+                    const stateName = d.properties.NAME_1 || 
+                                    d.properties.name || 
+                                    d.properties.NAME || 
+                                    d.properties.st_nm || 
+                                    d.properties.state_name ||
+                                    d.properties.admin_name ||
+                                    "Unknown";
+                    return stateName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                })
+                .on("mouseover", function(event, d) {
+                    const stateName = getStateName(d);
+                    const rate = birthRatesPerMinute[stateName] || 0;
+                    const tooltip = `${stateName}\nBirths/min: ${rate}\nToday's births: ${stateCounters[stateName] || 0}`;
+                    this.setAttribute("title", tooltip);
+                })
+                .on("click", function(event, d) {
+                    const stateName = getStateName(d);
+                    console.log("State clicked:", stateName);
+                    console.log("Available properties:", Object.keys(d.properties));
+                });
+
+            // Add state labels
+            geoData.features.forEach(feature => {
+                const centroid = path.centroid(feature);
+                const stateName = getStateName(feature);
+                
+                if (centroid[0] && centroid[1]) {
+                    g.append("text")
+                        .attr("class", "state-label")
+                        .attr("x", centroid[0])
+                        .attr("y", centroid[1] - 5)
+                        .text(stateName.length > 12 ? stateName.substring(0, 10) + "..." : stateName);
+
+                    // Add birth counter
+                    g.append("text")
+                        .attr("class", "birth-counter")
+                        .attr("x", centroid[0])
+                        .attr("y", centroid[1] + 10)
+                        .attr("id", `counter-${stateName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}`)
+                        .text("0");
+                }
+            });
+
+            updateStatus("ready", "Real India map loaded successfully! Birth simulation starting...");
+            isMapLoaded = true;
+            startBirthSimulation();
+        }
+
+        // Helper function to extract state name from GeoJSON properties
+        function getStateName(feature) {
+            // Try different property names that might contain state names
+            return feature.properties.NAME_1 || 
+                   feature.properties.name || 
+                   feature.properties.NAME || 
+                   feature.properties.st_nm || 
+                   feature.properties.state_name ||
+                   feature.properties.admin_name ||
+                   "Unknown State";
+        }
+
+        // Error handling for GeoJSON loading
+        function handleError(error) {
+            console.error("Error loading GeoJSON:", error);
+            updateStatus("error", "Failed to load india-states.geojson file. Please check if the file exists in the same directory.");
+        }
+
+        // Update status display
+        function updateStatus(type, message) {
+            const statusDiv = document.getElementById("status");
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        // Start the birth simulation
+        function startBirthSimulation() {
+            if (!isMapLoaded) return;
+
+            // Convert per-minute rates to per-second probabilities
+            const birthRatesPerSecond = {};
+            Object.keys(birthRatesPerMinute).forEach(state => {
+                birthRatesPerSecond[state] = birthRatesPerMinute[state] / 60;
+            });
+
+            // Main simulation loop
+            setInterval(() => {
+                Object.keys(birthRatesPerSecond).forEach(state => {
+                    const rate = birthRatesPerSecond[state];
+                    
+                    // Use Poisson distribution approximation for birth events
+                    if (Math.random() < rate) {
+                        registerBirth(state);
+                    }
+                });
+            }, 1000); // Check every second
+
+            // Also run a faster check for more frequent updates
+            setInterval(() => {
+                Object.keys(birthRatesPerSecond).forEach(state => {
+                    const rate = birthRatesPerSecond[state] / 10; // Divide by 10 for 100ms intervals
+                    
+                    if (Math.random() < rate) {
+                        registerBirth(state);
+                    }
+                });
+            }, 100); // Check every 100ms for smoother animation
+        }
+
+        // Register a birth in a state
+        function registerBirth(stateName) {
+            // Update counters
+            stateCounters[stateName] = (stateCounters[stateName] || 0) + 1;
+            globalBirthCount++;
+
+            // Update display
+            updateGlobalCounter();
+            updateStateCounter(stateName);
+            flashState(stateName);
+        }
+
+        // Update global counter display
+        function updateGlobalCounter() {
+            document.getElementById("global-count").textContent = globalBirthCount.toLocaleString();
+        }
+
+        // Update state counter display
+        function updateStateCounter(stateName) {
+            const counterId = `counter-${stateName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}`;
+            const counterElement = document.getElementById(counterId);
+            if (counterElement) {
+                counterElement.textContent = stateCounters[stateName].toLocaleString();
+            }
+        }
+
+        // Flash state when birth occurs
+        function flashState(stateName) {
+            const stateId = stateName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+            const stateElement = document.getElementById(stateId);
+            
+            if (stateElement) {
+                // Add flash class
+                stateElement.classList.add("state-flash");
+                
+                // Remove flash class after animation
+                setTimeout(() => {
+                    stateElement.classList.remove("state-flash");
+                }, 200);
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener("DOMContentLoaded", function() {
+            initializeMap();
+        });
+
+        // ================================
+        // INSTRUCTIONS FOR USING REAL DATA
+        // ================================
+        /*
+        TO USE YOUR OWN BIRTH RATE DATA:
+        
+        1. Update the birthRatesPerMinute object with your actual data
+        
+        2. Ensure state names in your data match the names in your GeoJSON properties
+        
+        3. Click any state to see available property names in browser console for debugging
+        
+        4. The code will automatically try common property names: NAME_1, name, NAME, st_nm, etc.
+        */
+    </script>
+</body>
+</html>
